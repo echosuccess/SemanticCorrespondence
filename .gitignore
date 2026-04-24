@@ -1,0 +1,49 @@
+mydoc
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# ---------- Editors / OS ----------
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.ipynb_checkpoints/
+
+# ---------- Dataset (too big, public download) ----------
+SPair-71k/
+pf-pascal/
+pf-willow/
+
+# ---------- External backbone repos & weights (cloned by setup.sh) ----------
+external/
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+
+# ---------- Pre-computed / cached features ----------
+*.npy
+*.npz
+cached_*/
+feature_cache/
+
+# ---------- Runtime outputs ----------
+# Commit small final tables (*.txt, *.json) under project/results/final/
+# but ignore the raw per-run dumps:
+project/results/**/vis_*/
+project/results/**/*.tmp
+project/results/runs/
+logs/
+tb_logs/
+wandb/
+
+# ---------- Misc ----------
+*.log
+*.zip
+*.tar
+*.tar.gz

@@ -1,0 +1,15 @@
+# Semantic-Correspondence project - Step 1 (training-free baseline)
+# The torch + torchvision versions are the ones shipped with Colab;
+# pin them if you run elsewhere.
+
+torch>=2.1
+torchvision>=0.16
+numpy
+Pillow
+matplotlib
+tqdm
+pandas
+scipy
+einops
+timm
+yacs
