@@ -15,16 +15,29 @@ Matching + PCK are computed by ``utils.evaluator.PCKEvaluator`` from the
 SD4Match repo (which also reports the bilinear / soft-argmax variants for
 reference; ``nn`` is the pure argmax baseline required by Step 1).
 
+Resume / checkpoint support
+---------------------------
+When running on Google Colab the runtime may disconnect at any time.
+To avoid losing hours of work, the script saves a checkpoint every
+``--checkpoint-every`` pairs (default: 200).  The checkpoint contains:
+
+* the number of pairs already evaluated,
+* the full accumulated PCK result dict of the evaluator.
+
+On restart, pass ``--resume`` (or just re-run the same command with the
+same ``--output-dir``): the script detects the existing checkpoint, reloads
+the evaluator state, skips the already-processed pairs, and continues from
+where it left off.
+
 Example
 -------
-    python project/run_step1_trainfree.py \
-        --backbone dinov2_vitb14 \
-        --dino-repo external/dinov2 \
-        --data-root /content/drive/MyDrive/AML_Project/data \
-        --split test \
-        --img-size 512 \
-        --batch-size 4 \
-        --output-dir results/step1
+    # First run (or resume after disconnect -- same command either way):
+    python project/run_step1_trainfree.py \\
+        --backbone dinov2_vitb14 \\
+        --dino-repo external/dinov2 \\
+        --data-root /content/drive/MyDrive/Semantic-Correspondence \\
+        --split test --img-size 518 --batch-size 2 \\
+        --output-dir project/results/step1
 """
 
 from __future__ import annotations
@@ -35,6 +48,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from itertools import islice
 
 import torch
 from torch.utils.data import DataLoader
@@ -93,6 +107,15 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-pairs", type=int, default=-1,
                    help="If > 0, only evaluate that many pairs (for debugging).")
 
+    # checkpoint / resume
+    p.add_argument("--checkpoint-every", type=int, default=50,
+                   help="Save a resume checkpoint every N pairs. "
+                        "Set to 0 to disable checkpointing.")
+    p.add_argument("--resume", action="store_true",
+                   help="Resume from the latest checkpoint in --output-dir "
+                        "if one exists. Safe to always pass; does nothing "
+                        "when there is no checkpoint yet.")
+
     # IO
     p.add_argument("--sd4match-dir", type=str, default="../SD4Match",
                    help="Path to the SD4Match repo clone.")
@@ -104,7 +127,6 @@ def parse_args() -> argparse.Namespace:
 
 def build_backbone(args: argparse.Namespace):
     """Instantiate the requested frozen backbone."""
-    # Local import so that the SD4Match sys.path insertion happens first.
     from backbones import build_backbone as _build
 
     kwargs = {"device": args.device}
@@ -122,12 +144,7 @@ def build_backbone(args: argparse.Namespace):
 
 
 def build_dataset(args: argparse.Namespace):
-    """Build the SPair-71k dataset using SD4Match's loader.
-
-    We use a thin CRLF-tolerant subclass (``SafeSPairDataset``) so that
-    layout files uploaded from Windows still parse correctly without
-    touching the original SPair-71k files on disk.
-    """
+    """Build the SPair-71k dataset using a CRLF-tolerant subclass."""
     from config.base import get_default_defaults
     from spair_dataset import SafeSPairDataset as SPairDataset
 
@@ -135,8 +152,6 @@ def build_dataset(args: argparse.Namespace):
     cfg.DATASET.NAME = "spair"
     cfg.DATASET.ROOT = os.path.abspath(args.data_root)
     cfg.DATASET.IMG_SIZE = args.img_size
-    # Feed raw [0,1] images to the backbones; each backbone applies its own
-    # normalization internally. This keeps the pipeline backbone-agnostic.
     cfg.DATASET.MEAN = [0.0, 0.0, 0.0]
     cfg.DATASET.STD = [1.0, 1.0, 1.0]
 
@@ -147,35 +162,96 @@ def build_dataset(args: argparse.Namespace):
     return cfg, dataset
 
 
+# ---------------------------------------------------------------------------
+# Checkpoint helpers
+# ---------------------------------------------------------------------------
+
+def _ckpt_path(out_dir: Path, tag: str) -> Path:
+    return out_dir / f"{tag}.ckpt.json"
+
+
+def save_checkpoint(out_dir: Path, tag: str,
+                    n_pairs_seen: int, evaluator) -> None:
+    """Persist evaluator state + progress counter to disk."""
+    data = {
+        "n_pairs_seen": n_pairs_seen,
+        "evaluator_result": evaluator.result,
+    }
+    path = _ckpt_path(out_dir, tag)
+    # Write to a temp file first, then rename — avoids corrupt checkpoint
+    # if the process is killed mid-write.
+    tmp = path.with_suffix(".tmp")
+    with open(tmp, "w") as f:
+        json.dump(data, f, default=float)
+    tmp.replace(path)
+
+
+def load_checkpoint(out_dir: Path, tag: str, evaluator) -> int:
+    """Load checkpoint into evaluator; return number of pairs already done."""
+    path = _ckpt_path(out_dir, tag)
+    if not path.exists():
+        return 0
+    with open(path) as f:
+        data = json.load(f)
+    evaluator.result = data["evaluator_result"]
+    n = data["n_pairs_seen"]
+    print(f"[resume] Loaded checkpoint: {n} pairs already evaluated.")
+    return n
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
 def main() -> None:
     args = parse_args()
     _add_sd4match_to_syspath(args.sd4match_dir)
 
     cfg, dataset = build_dataset(args)
 
-    from utils.evaluator import PCKEvaluator  # noqa: E402  (after sys.path)
+    from utils.evaluator import PCKEvaluator
 
     evaluator = PCKEvaluator(cfg)
     backbone = build_backbone(args)
+
+    out_dir = Path(args.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tag = f"{args.backbone}_{args.split}_{args.category}_by{args.by}"
+
+    # ---- resume from checkpoint if available ----
+    n_skip = 0
+    if args.resume or _ckpt_path(out_dir, tag).exists():
+        n_skip = load_checkpoint(out_dir, tag, evaluator)
 
     loader = DataLoader(
         dataset, batch_size=args.batch_size, shuffle=False,
         num_workers=args.num_workers, pin_memory=True,
     )
 
-    n_pairs_seen = 0
+    n_pairs_seen = n_skip
     t0 = time.perf_counter()
 
+    # Skip the already-processed batches cheaply (no GPU work).
+    n_batches_skip = n_skip // args.batch_size
+    if n_batches_skip > 0:
+        print(f"[resume] Skipping first {n_batches_skip} batches "
+              f"({n_skip} pairs) ...")
+
     for i, batch in enumerate(loader):
-        src_img = batch["src_img"]  # (B, 3, H, W), in [0, 1]
+
+        # Fast-forward past the already-evaluated portion.
+        if i < n_batches_skip:
+            continue
+
+        src_img = batch["src_img"]
         trg_img = batch["trg_img"]
 
-        # Inputs stay on CPU here; each backbone moves them to its device.
-        batch["src_featmaps"] = backbone(src_img).float()
-        batch["trg_featmaps"] = backbone(trg_img).float()
+        # Extract features on GPU, then move back to CPU so they match
+        # the device of src_kps / trg_kps which the SD4Match evaluator
+        # expects to be on CPU (grid_sample requires same device).
+        batch["src_featmaps"] = backbone(src_img).float().cpu()
+        batch["trg_featmaps"] = backbone(trg_img).float().cpu()
 
-        # The evaluator compares every matcher (nn / bilinear / soft-argmax)
-        # against the ground truth and updates its internal counters.
         evaluator.evaluate_feature_map(
             batch,
             softmax_temp=args.softmax_temp,
@@ -184,25 +260,32 @@ def main() -> None:
         )
 
         n_pairs_seen += src_img.shape[0]
-        if i % 50 == 0:
+
+        # Progress log
+        if (i - n_batches_skip) % 50 == 0:
             dt = time.perf_counter() - t0
-            ips = n_pairs_seen / max(dt, 1e-6)
+            new_pairs = n_pairs_seen - n_skip
+            ips = new_pairs / max(dt, 1e-6)
             print(f"[{n_pairs_seen}/{len(dataset)}] "
                   f"elapsed={dt:.1f}s  pairs/s={ips:.2f}")
+
+        # Periodic checkpoint
+        if (args.checkpoint_every > 0
+                and n_pairs_seen % args.checkpoint_every < args.batch_size):
+            save_checkpoint(out_dir, tag, n_pairs_seen, evaluator)
+            print(f"  [ckpt] saved at {n_pairs_seen} pairs")
 
         if args.max_pairs > 0 and n_pairs_seen >= args.max_pairs:
             break
 
     dt = time.perf_counter() - t0
-    print(f"\nFinished. Evaluated {n_pairs_seen} pairs in {dt:.1f}s "
-          f"({n_pairs_seen / max(dt, 1e-6):.2f} pairs/s).\n")
+    new_pairs = n_pairs_seen - n_skip
+    print(f"\nFinished. Evaluated {new_pairs} new pairs "
+          f"({n_pairs_seen} total) in {dt:.1f}s "
+          f"({new_pairs / max(dt, 1e-6):.2f} pairs/s).\n")
 
-    # ---- persist results ----
-    out_dir = Path(args.output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    tag = f"{args.backbone}_{args.split}_{args.category}_by{args.by}"
-    txt_path = out_dir / f"{tag}.txt"
+    # ---- final results ----
+    txt_path  = out_dir / f"{tag}.txt"
     json_path = out_dir / f"{tag}.json"
 
     evaluator.print_summarize_result()
@@ -212,12 +295,18 @@ def main() -> None:
     with open(json_path, "w") as f:
         json.dump(summary, f, indent=2, default=float)
 
-    print(f"\nSaved per-category report to {txt_path}")
-    print(f"Saved machine-readable summary to {json_path}")
+    print(f"\nSaved per-category report  → {txt_path}")
+    print(f"Saved machine-readable JSON → {json_path}")
 
     if torch.cuda.is_available():
         max_mem_mb = torch.cuda.max_memory_allocated() / 1024 ** 2
         print(f"Peak GPU memory: {max_mem_mb:.0f} MiB")
+
+    # Delete checkpoint after successful completion.
+    ckpt = _ckpt_path(out_dir, tag)
+    if ckpt.exists():
+        ckpt.unlink()
+        print("[ckpt] Checkpoint deleted (run complete).")
 
 
 if __name__ == "__main__":
