@@ -80,7 +80,7 @@ def build_backbone(args: argparse.Namespace):
 
 def build_dataset(args: argparse.Namespace):
     from config.base import get_default_defaults
-    from dataset.spair import SPairDataset
+    from spair_dataset import SafeSPairDataset as SPairDataset
 
     cfg = get_default_defaults()
     cfg.DATASET.NAME = "spair"

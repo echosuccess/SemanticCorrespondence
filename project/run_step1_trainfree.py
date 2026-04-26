@@ -122,9 +122,14 @@ def build_backbone(args: argparse.Namespace):
 
 
 def build_dataset(args: argparse.Namespace):
-    """Build the SPair-71k dataset using SD4Match's loader."""
+    """Build the SPair-71k dataset using SD4Match's loader.
+
+    We use a thin CRLF-tolerant subclass (``SafeSPairDataset``) so that
+    layout files uploaded from Windows still parse correctly without
+    touching the original SPair-71k files on disk.
+    """
     from config.base import get_default_defaults
-    from dataset.spair import SPairDataset
+    from spair_dataset import SafeSPairDataset as SPairDataset
 
     cfg = get_default_defaults()
     cfg.DATASET.NAME = "spair"
