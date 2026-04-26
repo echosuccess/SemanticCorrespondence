@@ -78,7 +78,7 @@ def parse_args() -> argparse.Namespace:
                         "(e.g. 518 for DINOv2, 512 for DINOv3, 1024 for SAM).")
 
     # evaluation
-    p.add_argument("--alphas", type=float, nargs="+", default=[0.05, 0.1, 0.15],
+    p.add_argument("--alphas", type=float, nargs="+", default=[0.05, 0.1, 0.2],
                    help="PCK thresholds (fractions of the bbox side).")
     p.add_argument("--by", type=str, default="image", choices=["image", "point"],
                    help="Whether to average PCK per image or per keypoint.")
