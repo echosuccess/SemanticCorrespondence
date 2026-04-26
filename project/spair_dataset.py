@@ -84,15 +84,27 @@ class SafeSPairDataset(SPairDataset):
             os.path.join(self.img_path, os.pardir, "Segmentation"))
         self.cls = sorted(os.listdir(self.img_path))
 
+        # Build the list of annotation paths. Some users extract SPair-71k
+        # on Windows, where the ':' character in filenames is silently
+        # replaced with '_' (e.g. ``...:aeroplane.json`` becomes
+        # ``..._aeroplane.json``). We probe both names so the exact same
+        # code works on either kind of upload.
         anntn_files: List[str] = []
         for data_name in self.train_data:
-            matches = glob.glob(f"{self.ann_path}/{data_name}.json")
-            if not matches:
+            candidates = [
+                os.path.join(self.ann_path, f"{data_name}.json"),
+                os.path.join(self.ann_path,
+                             f"{data_name.replace(':', '_')}.json"),
+            ]
+            found = next((p for p in candidates if os.path.exists(p)), None)
+            if found is None:
                 raise FileNotFoundError(
-                    f"Annotation file for pair '{data_name}' not found under "
-                    f"{self.ann_path}. Check that the dataset layout is intact."
+                    f"Annotation file for pair '{data_name}' not found "
+                    f"under {self.ann_path} (tried both ':' and '_' "
+                    f"as the category separator). "
+                    f"Check that the dataset layout is intact."
                 )
-            anntn_files.append(matches[0])
+            anntn_files.append(found)
 
         self.src_kps, self.trg_kps = [], []
         self.src_bbox, self.trg_bbox = [], []
