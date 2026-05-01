@@ -47,6 +47,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--img-size", type=int, default=512)
 
     p.add_argument("--dino-repo", type=str, default="external/dinov2")
+    p.add_argument("--dinov3-weights", type=str,
+                   default="external/dinov3_weights/dinov3_vitb16.pth",
+                   help="Path to DINOv3 .pth weights (used when backbone starts with 'dinov3_').")
     p.add_argument("--sam-checkpoint", type=str,
                    default="external/segment-anything/sam_vit_b_01ec64.pth")
     p.add_argument("--backbone-input-size", type=int, default=None)
@@ -71,6 +74,7 @@ def build_backbone(args: argparse.Namespace):
     elif args.backbone.startswith("dinov3_"):
         kwargs["repo_dir"] = args.dino_repo
         kwargs["input_size"] = args.backbone_input_size or 512
+        kwargs["weights_path"] = args.dinov3_weights
     elif args.backbone.startswith("sam_"):
         kwargs["checkpoint"] = args.sam_checkpoint
     else:

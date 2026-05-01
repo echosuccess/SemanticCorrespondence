@@ -94,6 +94,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--backbone-input-size", type=int, default=None,
                    help="Override the backbone's default input size "
                         "(e.g. 518 for DINOv2, 512 for DINOv3, 1024 for SAM).")
+    p.add_argument("--finetune-checkpoint", type=str, default=None,
+                   help="Path to a Step-2 fine-tuned .pth checkpoint. "
+                        "When provided, loads these weights into the backbone "
+                        "before evaluation (backbone type must match).")
 
     # evaluation
     p.add_argument("--alphas", type=float, nargs="+", default=[0.05, 0.1, 0.2],
@@ -145,7 +149,21 @@ def build_backbone(args: argparse.Namespace):
         kwargs["checkpoint"] = args.sam_checkpoint
     else:
         raise ValueError(f"Unrecognised backbone '{args.backbone}'.")
-    return _build(args.backbone, **kwargs)
+    backbone = _build(args.backbone, **kwargs)
+
+    if args.finetune_checkpoint is not None:
+        from backbones.finetune_wrapper import FinetunableBackbone
+        ckpt = FinetunableBackbone.load_checkpoint_into_backbone(
+            backbone, args.finetune_checkpoint
+        )
+        n_layers = ckpt.get("n_unfrozen_layers", "?")
+        best_pck = ckpt.get("best_val_pck_01", "?")
+        print(
+            f"[finetune] Loaded checkpoint: {args.finetune_checkpoint}\n"
+            f"           unfrozen_layers={n_layers}  "
+            f"best_val_PCK@0.1={best_pck}"
+        )
+    return backbone
 
 
 def build_dataset(args: argparse.Namespace):
