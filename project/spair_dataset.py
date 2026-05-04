@@ -26,6 +26,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+import pickle
 from typing import List
 
 import torch
@@ -106,25 +107,63 @@ class SafeSPairDataset(SPairDataset):
                 )
             anntn_files.append(found)
 
-        self.src_kps, self.trg_kps = [], []
-        self.src_bbox, self.trg_bbox = [], []
-        self.cls_ids = []
-        self.vpvar, self.scvar, self.trncn, self.occln = [], [], [], []
+        # ---- Annotation loading with persistent cache ----
+        # Cache lives at  {SPair-71k root}/ann_cache_{split}_{category}.pkl
+        # First run  → reads all JSON files (slow) then saves cache to Drive.
+        # Later runs → loads one pickle file (fast, seconds instead of hours).
+        spair_root = os.path.dirname(os.path.dirname(self.ann_path))
+        cache_path = os.path.join(
+            spair_root, f"ann_cache_{split}_{category}.pkl"
+        )
 
-        print(f"Reading SPair-71k information ({split} / {category}) ...")
-        for anntn_file in tqdm(anntn_files):
-            with open(anntn_file) as f:
-                anntn = json.load(f)
-            self.src_kps.append(torch.tensor(anntn["src_kps"]).t().float())
-            self.trg_kps.append(torch.tensor(anntn["trg_kps"]).t().float())
-            self.src_bbox.append(torch.tensor(anntn["src_bndbox"]).float())
-            self.trg_bbox.append(torch.tensor(anntn["trg_bndbox"]).float())
-            self.cls_ids.append(self.cls.index(anntn["category"]))
+        if os.path.exists(cache_path):
+            print(f"[cache] Loading annotation cache: {cache_path}")
+            with open(cache_path, "rb") as f:
+                cache = pickle.load(f)
+            self.src_kps   = cache["src_kps"]
+            self.trg_kps   = cache["trg_kps"]
+            self.src_bbox  = cache["src_bbox"]
+            self.trg_bbox  = cache["trg_bbox"]
+            self.cls_ids   = cache["cls_ids"]
+            self.vpvar     = cache["vpvar"]
+            self.scvar     = cache["scvar"]
+            self.trncn     = cache["trncn"]
+            self.occln     = cache["occln"]
+        else:
+            self.src_kps, self.trg_kps = [], []
+            self.src_bbox, self.trg_bbox = [], []
+            self.cls_ids = []
+            self.vpvar, self.scvar, self.trncn, self.occln = [], [], [], []
 
-            self.vpvar.append(torch.tensor(anntn["viewpoint_variation"]))
-            self.scvar.append(torch.tensor(anntn["scale_variation"]))
-            self.trncn.append(torch.tensor(anntn["truncation"]))
-            self.occln.append(torch.tensor(anntn["occlusion"]))
+            print(f"Reading SPair-71k information ({split} / {category}) ...")
+            for anntn_file in tqdm(anntn_files):
+                with open(anntn_file) as f:
+                    anntn = json.load(f)
+                self.src_kps.append(torch.tensor(anntn["src_kps"]).t().float())
+                self.trg_kps.append(torch.tensor(anntn["trg_kps"]).t().float())
+                self.src_bbox.append(torch.tensor(anntn["src_bndbox"]).float())
+                self.trg_bbox.append(torch.tensor(anntn["trg_bndbox"]).float())
+                self.cls_ids.append(self.cls.index(anntn["category"]))
+                self.vpvar.append(torch.tensor(anntn["viewpoint_variation"]))
+                self.scvar.append(torch.tensor(anntn["scale_variation"]))
+                self.trncn.append(torch.tensor(anntn["truncation"]))
+                self.occln.append(torch.tensor(anntn["occlusion"]))
+
+            # Persist to Drive so future runs skip this loop entirely.
+            cache = {
+                "src_kps":  self.src_kps,
+                "trg_kps":  self.trg_kps,
+                "src_bbox": self.src_bbox,
+                "trg_bbox": self.trg_bbox,
+                "cls_ids":  self.cls_ids,
+                "vpvar":    self.vpvar,
+                "scvar":    self.scvar,
+                "trncn":    self.trncn,
+                "occln":    self.occln,
+            }
+            with open(cache_path, "wb") as f:
+                pickle.dump(cache, f)
+            print(f"[cache] Saved annotation cache → {cache_path}")
 
         self.src_identifiers = [
             f"{self.cls[ids]}-{name[:-4]}"
