@@ -248,9 +248,10 @@ def main() -> None:
 
     # When resuming, slice the dataset so the DataLoader never loads already-
     # evaluated samples (avoids Drive I/O for thousands of skipped images).
+    total_pairs = len(dataset)
     if n_skip > 0:
         import torch.utils.data as tud
-        remaining = list(range(n_skip, len(dataset)))
+        remaining = list(range(n_skip, total_pairs))
         dataset = tud.Subset(dataset, remaining)
         print(f"[resume] Resuming from pair {n_skip} "
               f"({len(remaining)} pairs remaining) ...")
@@ -288,7 +289,7 @@ def main() -> None:
             dt = time.perf_counter() - t0
             new_pairs = n_pairs_seen - n_skip
             ips = new_pairs / max(dt, 1e-6)
-            print(f"[{n_pairs_seen}/{len(dataset)}] "
+            print(f"[{n_pairs_seen}/{total_pairs}] "
                   f"elapsed={dt:.1f}s  pairs/s={ips:.2f}")
 
         # Periodic checkpoint
