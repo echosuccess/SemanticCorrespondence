@@ -246,6 +246,15 @@ def main() -> None:
     if args.resume or _ckpt_path(out_dir, tag).exists():
         n_skip = load_checkpoint(out_dir, tag, evaluator)
 
+    # When resuming, slice the dataset so the DataLoader never loads already-
+    # evaluated samples (avoids Drive I/O for thousands of skipped images).
+    if n_skip > 0:
+        import torch.utils.data as tud
+        remaining = list(range(n_skip, len(dataset)))
+        dataset = tud.Subset(dataset, remaining)
+        print(f"[resume] Resuming from pair {n_skip} "
+              f"({len(remaining)} pairs remaining) ...")
+
     loader = DataLoader(
         dataset, batch_size=args.batch_size, shuffle=False,
         num_workers=args.num_workers, pin_memory=True,
@@ -254,17 +263,7 @@ def main() -> None:
     n_pairs_seen = n_skip
     t0 = time.perf_counter()
 
-    # Skip the already-processed batches cheaply (no GPU work).
-    n_batches_skip = n_skip // args.batch_size
-    if n_batches_skip > 0:
-        print(f"[resume] Skipping first {n_batches_skip} batches "
-              f"({n_skip} pairs) ...")
-
     for i, batch in enumerate(loader):
-
-        # Fast-forward past the already-evaluated portion.
-        if i < n_batches_skip:
-            continue
 
         src_img = batch["src_img"]
         trg_img = batch["trg_img"]
@@ -285,7 +284,7 @@ def main() -> None:
         n_pairs_seen += src_img.shape[0]
 
         # Progress log
-        if (i - n_batches_skip) % 50 == 0:
+        if i % 50 == 0:
             dt = time.perf_counter() - t0
             new_pairs = n_pairs_seen - n_skip
             ips = new_pairs / max(dt, 1e-6)
