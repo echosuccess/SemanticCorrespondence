@@ -107,36 +107,60 @@ class SafeSPairDataset(SPairDataset):
                 )
             anntn_files.append(found)
 
-        # ---- Annotation loading with persistent cache ----
-        # Cache lives at  {SPair-71k root}/ann_cache_{split}_{category}.pkl
-        # First run  → reads all JSON files (slow) then saves cache to Drive.
-        # Later runs → loads one pickle file (fast, seconds instead of hours).
-        spair_root = os.path.dirname(os.path.dirname(self.ann_path))
-        cache_path = os.path.join(
-            spair_root, f"ann_cache_{split}_{category}.pkl"
-        )
+        # ---- Annotation loading with persistent + resumable cache ----
+        # Final cache : {SPair-71k root}/ann_cache_{split}_{category}.pkl
+        # Partial cache: same name + ".partial" suffix – saved every 2000 items
+        #                so an interrupted run can resume instead of restarting.
+        _SAVE_EVERY = 500
+        spair_root  = os.path.dirname(os.path.dirname(self.ann_path))
+        cache_path  = os.path.join(spair_root, f"ann_cache_{split}_{category}.pkl")
+        partial_path = cache_path + ".partial"
+
+        def _pack(lists):
+            return {
+                "src_kps":  lists[0], "trg_kps":  lists[1],
+                "src_bbox": lists[2], "trg_bbox": lists[3],
+                "cls_ids":  lists[4], "vpvar":    lists[5],
+                "scvar":    lists[6], "trncn":    lists[7],
+                "occln":    lists[8],
+            }
+
+        def _unpack(cache):
+            return (cache["src_kps"], cache["trg_kps"],
+                    cache["src_bbox"], cache["trg_bbox"],
+                    cache["cls_ids"], cache["vpvar"],
+                    cache["scvar"], cache["trncn"], cache["occln"])
 
         if os.path.exists(cache_path):
+            # Complete cache → instant load
             print(f"[cache] Loading annotation cache: {cache_path}")
             with open(cache_path, "rb") as f:
                 cache = pickle.load(f)
-            self.src_kps   = cache["src_kps"]
-            self.trg_kps   = cache["trg_kps"]
-            self.src_bbox  = cache["src_bbox"]
-            self.trg_bbox  = cache["trg_bbox"]
-            self.cls_ids   = cache["cls_ids"]
-            self.vpvar     = cache["vpvar"]
-            self.scvar     = cache["scvar"]
-            self.trncn     = cache["trncn"]
-            self.occln     = cache["occln"]
+            (self.src_kps, self.trg_kps, self.src_bbox, self.trg_bbox,
+             self.cls_ids, self.vpvar, self.scvar, self.trncn,
+             self.occln) = _unpack(cache)
         else:
+            # Partial cache → resume from last checkpoint
+            start_idx = 0
             self.src_kps, self.trg_kps = [], []
             self.src_bbox, self.trg_bbox = [], []
             self.cls_ids = []
             self.vpvar, self.scvar, self.trncn, self.occln = [], [], [], []
 
+            if os.path.exists(partial_path):
+                print(f"[cache] Resuming annotation loading from: {partial_path}")
+                with open(partial_path, "rb") as f:
+                    partial = pickle.load(f)
+                (self.src_kps, self.trg_kps, self.src_bbox, self.trg_bbox,
+                 self.cls_ids, self.vpvar, self.scvar, self.trncn,
+                 self.occln) = _unpack(partial)
+                start_idx = partial["n_loaded"]
+                print(f"[cache] Resuming from item {start_idx} / {len(anntn_files)}")
+
             print(f"Reading SPair-71k information ({split} / {category}) ...")
-            for anntn_file in tqdm(anntn_files):
+            for idx, anntn_file in enumerate(tqdm(anntn_files[start_idx:],
+                                                  initial=start_idx,
+                                                  total=len(anntn_files))):
                 with open(anntn_file) as f:
                     anntn = json.load(f)
                 self.src_kps.append(torch.tensor(anntn["src_kps"]).t().float())
@@ -149,20 +173,28 @@ class SafeSPairDataset(SPairDataset):
                 self.trncn.append(torch.tensor(anntn["truncation"]))
                 self.occln.append(torch.tensor(anntn["occlusion"]))
 
-            # Persist to Drive so future runs skip this loop entirely.
-            cache = {
-                "src_kps":  self.src_kps,
-                "trg_kps":  self.trg_kps,
-                "src_bbox": self.src_bbox,
-                "trg_bbox": self.trg_bbox,
-                "cls_ids":  self.cls_ids,
-                "vpvar":    self.vpvar,
-                "scvar":    self.scvar,
-                "trncn":    self.trncn,
-                "occln":    self.occln,
-            }
+                # Save partial cache every _SAVE_EVERY items
+                n_done = start_idx + idx + 1
+                if n_done % _SAVE_EVERY == 0:
+                    partial_data = _pack([
+                        self.src_kps, self.trg_kps, self.src_bbox,
+                        self.trg_bbox, self.cls_ids, self.vpvar,
+                        self.scvar, self.trncn, self.occln,
+                    ])
+                    partial_data["n_loaded"] = n_done
+                    with open(partial_path, "wb") as f:
+                        pickle.dump(partial_data, f)
+
+            # All done → save final cache and remove partial
+            final_cache = _pack([
+                self.src_kps, self.trg_kps, self.src_bbox,
+                self.trg_bbox, self.cls_ids, self.vpvar,
+                self.scvar, self.trncn, self.occln,
+            ])
             with open(cache_path, "wb") as f:
-                pickle.dump(cache, f)
+                pickle.dump(final_cache, f)
+            if os.path.exists(partial_path):
+                os.remove(partial_path)
             print(f"[cache] Saved annotation cache → {cache_path}")
 
         self.src_identifiers = [
