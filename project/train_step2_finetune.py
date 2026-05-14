@@ -277,15 +277,15 @@ def validate(model, val_loader, cfg, device: str) -> float:
             enable_l2_norm=True,
         )
 
-    # SD4Match uses the typo'd name "summerize_result" (two m's)
+    # summerize_result() returns keys like "nn_pck0.1" with sub-key "all"
     results = evaluator.summerize_result()
-    # results is a dict of dicts; extract mean PCK at alpha=0.1
+    # Use argmax (nn) matching at alpha=0.1 as the validation criterion
     try:
-        pck_01 = float(results["0.1"]["mean"])
-    except (KeyError, TypeError):
-        # fall back to first available key
-        first_alpha = next(iter(results))
-        pck_01 = float(results[first_alpha]["mean"])
+        pck_01 = float(results["nn_pck0.1"]["all"])
+    except KeyError:
+        # Fall back to first available key if alpha list differs
+        first_key = next(k for k in results if k.startswith("nn_pck"))
+        pck_01 = float(results[first_key]["all"])
     return pck_01
 
 
