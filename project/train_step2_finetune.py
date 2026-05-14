@@ -484,6 +484,30 @@ def main() -> None:
         n_dir = out_root / f"n{n}"
         n_dir.mkdir(parents=True, exist_ok=True)
 
+        tag = f"{args.backbone}_n{n}"
+        best_path   = n_dir / f"{tag}_best.pth"
+        latest_path = n_dir / f"{tag}_latest.pth"
+
+        # Skip if already fully trained (best exists, latest does not)
+        if best_path.exists() and not latest_path.exists():
+            log_path = n_dir / "train_log.json"
+            if log_path.exists():
+                with open(log_path) as f:
+                    log = json.load(f)
+                best_pck = log.get("best_val_pck_01", "?")
+            else:
+                log = {"backbone": args.backbone, "n_unfrozen": n,
+                       "best_val_pck_01": None, "epochs": []}
+                best_pck = "?"
+            print(f"\n[skip] {tag} already finished "
+                  f"(best_val_PCK@0.1={best_pck}) — delete {best_path} to retrain.")
+            ablation_logs.append({
+                "n_unfrozen": n,
+                "best_val_pck_01": log.get("best_val_pck_01"),
+                "checkpoint": str(best_path),
+            })
+            continue
+
         log = train_one_n(args, n, train_loader, val_loader, val_cfg, n_dir)
 
         # Save per-N log
