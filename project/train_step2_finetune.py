@@ -537,9 +537,11 @@ def main() -> None:
     print(f"{'='*60}")
     print(f"  {'N unfrozen':>12}  {'val PCK@0.1':>12}  Checkpoint")
     for row in ablation_logs:
+        pck = row['best_val_pck_01']
+        pck_str = f"{pck:>12.4f}" if pck is not None else f"{'N/A':>12}"
         print(
             f"  {row['n_unfrozen']:>12}  "
-            f"{row['best_val_pck_01']:>12.4f}  "
+            f"{pck_str}  "
             f"{row['checkpoint']}"
         )
     print(f"\nFull summary → {summary_path}")
