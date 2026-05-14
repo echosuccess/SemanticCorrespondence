@@ -277,7 +277,8 @@ def validate(model, val_loader, cfg, device: str) -> float:
             enable_l2_norm=True,
         )
 
-    results = evaluator.get_results()
+    # SD4Match uses the typo'd name "summerize_result" (two m's)
+    results = evaluator.summerize_result()
     # results is a dict of dicts; extract mean PCK at alpha=0.1
     try:
         pck_01 = float(results["0.1"]["mean"])
