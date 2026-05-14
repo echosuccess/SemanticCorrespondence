@@ -270,7 +270,12 @@ def validate(model, val_loader, cfg, device: str) -> float:
 
         batch["src_featmaps"] = F_src
         batch["trg_featmaps"] = F_trg
-        evaluator.evaluate_batch(batch)
+        evaluator.evaluate_feature_map(
+            batch,
+            softmax_temp=0.04,
+            gaussian_suppression_sigma=7,
+            enable_l2_norm=True,
+        )
 
     results = evaluator.get_results()
     # results is a dict of dicts; extract mean PCK at alpha=0.1
