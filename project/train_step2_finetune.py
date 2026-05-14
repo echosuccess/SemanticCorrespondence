@@ -256,7 +256,7 @@ def validate(model, val_loader, cfg, device: str) -> float:
 
     Uses SD4Match's PCKEvaluator with a single threshold (0.1) for speed.
     """
-    from utils.evaluation import PCKEvaluator
+    from utils.evaluator import PCKEvaluator
 
     evaluator = PCKEvaluator(cfg)
     model.backbone.model.eval()
