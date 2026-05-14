@@ -314,13 +314,28 @@ def train_one_n(
 
     tag = f"{args.backbone}_n{n_unfrozen}"
     best_pck = -1.0
+    start_epoch = 1
     log = {"backbone": args.backbone, "n_unfrozen": n_unfrozen, "epochs": []}
+
+    # ---- Resume from latest checkpoint if available ----
+    latest_path = out_dir / f"{tag}_latest.pth"
+    if latest_path.exists():
+        print(f"[resume] Loading training state from {latest_path}")
+        state = torch.load(latest_path, map_location=args.device)
+        model.backbone.model.load_state_dict(state["model"])
+        optimizer.load_state_dict(state["optimizer"])
+        scheduler.load_state_dict(state["scheduler"])
+        start_epoch = state["epoch"] + 1
+        best_pck = state["best_pck"]
+        log = state["log"]
+        print(f"[resume] Resuming from epoch {start_epoch}/{args.epochs}, "
+              f"best_pck={best_pck:.4f}")
 
     print(f"\n{'='*60}")
     print(f"  Training  {tag}  (epochs={args.epochs})")
     print(f"{'='*60}")
 
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(start_epoch, args.epochs + 1):
         model.set_train_eval_mode()
         epoch_loss = 0.0
         n_steps = 0
@@ -405,6 +420,20 @@ def train_one_n(
             ckpt_path = out_dir / f"{tag}_best.pth"
             model.save_checkpoint(ckpt_path, extra={"best_val_pck_01": best_pck})
             print(f"    ↑ New best  val_PCK@0.1={best_pck:.4f}  saved → {ckpt_path}")
+
+        # ---- Save latest checkpoint for resume ----
+        torch.save({
+            "epoch":     epoch,
+            "model":     model.backbone.model.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "scheduler": scheduler.state_dict(),
+            "best_pck":  best_pck,
+            "log":       log,
+        }, latest_path)
+
+    # Training done – remove latest checkpoint (no longer needed)
+    if latest_path.exists():
+        latest_path.unlink()
 
     log["best_val_pck_01"] = round(best_pck, 6)
     return log
