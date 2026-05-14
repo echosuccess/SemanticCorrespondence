@@ -85,28 +85,6 @@ class SafeSPairDataset(SPairDataset):
             os.path.join(self.img_path, os.pardir, "Segmentation"))
         self.cls = sorted(os.listdir(self.img_path))
 
-        # Build the list of annotation paths. Some users extract SPair-71k
-        # on Windows, where the ':' character in filenames is silently
-        # replaced with '_' (e.g. ``...:aeroplane.json`` becomes
-        # ``..._aeroplane.json``). We probe both names so the exact same
-        # code works on either kind of upload.
-        anntn_files: List[str] = []
-        for data_name in self.train_data:
-            candidates = [
-                os.path.join(self.ann_path, f"{data_name}.json"),
-                os.path.join(self.ann_path,
-                             f"{data_name.replace(':', '_')}.json"),
-            ]
-            found = next((p for p in candidates if os.path.exists(p)), None)
-            if found is None:
-                raise FileNotFoundError(
-                    f"Annotation file for pair '{data_name}' not found "
-                    f"under {self.ann_path} (tried both ':' and '_' "
-                    f"as the category separator). "
-                    f"Check that the dataset layout is intact."
-                )
-            anntn_files.append(found)
-
         # ---- Annotation loading with persistent + resumable cache ----
         # Final cache : {SPair-71k root}/ann_cache_{split}_{category}.pkl
         # Partial cache: same name + ".partial" suffix – saved every 2000 items
@@ -140,6 +118,26 @@ class SafeSPairDataset(SPairDataset):
              self.cls_ids, self.vpvar, self.scvar, self.trncn,
              self.occln) = _unpack(cache)
         else:
+            # Build the list of annotation file paths only when cache is missing.
+            # Some users extract SPair-71k on Windows where ':' in filenames is
+            # silently replaced with '_'. We probe both so the code works either way.
+            anntn_files: List[str] = []
+            for data_name in self.train_data:
+                candidates = [
+                    os.path.join(self.ann_path, f"{data_name}.json"),
+                    os.path.join(self.ann_path,
+                                 f"{data_name.replace(':', '_')}.json"),
+                ]
+                found = next((p for p in candidates if os.path.exists(p)), None)
+                if found is None:
+                    raise FileNotFoundError(
+                        f"Annotation file for pair '{data_name}' not found "
+                        f"under {self.ann_path} (tried both ':' and '_' "
+                        f"as the category separator). "
+                        f"Check that the dataset layout is intact."
+                    )
+                anntn_files.append(found)
+
             # Partial cache → resume from last checkpoint
             start_idx = 0
             self.src_kps, self.trg_kps = [], []
