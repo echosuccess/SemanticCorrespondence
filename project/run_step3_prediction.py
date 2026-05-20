@@ -211,8 +211,10 @@ def main() -> None:
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # Format temperature: drop trailing zeros (1.0→t1, 0.1→t01, 0.05→t005)
+    temp_str = f"t{args.wsa_temperature:.2f}".replace(".", "").rstrip("0") or "t1"
     tag = (f"{args.backbone}_{args.split}_{args.category}"
-           f"_by{args.by}_w{args.window_size}")
+           f"_by{args.by}_w{args.window_size}_{temp_str}")
 
     # ---- resume ----
     n_skip = 0
