@@ -216,6 +216,13 @@ def main() -> None:
     tag = (f"{args.backbone}_{args.split}_{args.category}"
            f"_by{args.by}_w{args.window_size}_{temp_str}")
 
+    # ---- skip if already completed ----
+    json_path_check = out_dir / f"{tag}.json"
+    if json_path_check.exists() and not _ckpt_path(out_dir, tag).exists():
+        print(f"[skip] Already completed: {json_path_check}")
+        print("       Delete the .json file to force re-evaluation.")
+        return
+
     # ---- resume ----
     n_skip = 0
     if args.resume or _ckpt_path(out_dir, tag).exists():

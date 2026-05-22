@@ -98,6 +98,9 @@ def parse_args() -> argparse.Namespace:
                    help="Path to a Step-2 fine-tuned .pth checkpoint. "
                         "When provided, loads these weights into the backbone "
                         "before evaluation (backbone type must match).")
+    p.add_argument("--lora-checkpoint", type=str, default=None,
+                   help="Path to a Step-4 LoRA .pth checkpoint. "
+                        "Injects LoRA adapters and loads saved weights.")
 
     # evaluation
     p.add_argument("--alphas", type=float, nargs="+", default=[0.05, 0.1, 0.2],
@@ -163,6 +166,20 @@ def build_backbone(args: argparse.Namespace):
             f"           unfrozen_layers={n_layers}  "
             f"best_val_PCK@0.1={best_pck}"
         )
+
+    if args.lora_checkpoint is not None:
+        from lora_backbone import LoRABackbone
+        ckpt = LoRABackbone.load_checkpoint_into_backbone(
+            backbone, args.lora_checkpoint
+        )
+        r        = ckpt.get("r", "?")
+        alpha    = ckpt.get("lora_alpha", "?")
+        best_pck = ckpt.get("best_val_pck_01", "?")
+        print(
+            f"[lora] Loaded checkpoint: {args.lora_checkpoint}\n"
+            f"       r={r}  alpha={alpha}  best_val_PCK@0.1={best_pck}"
+        )
+
     return backbone
 
 
