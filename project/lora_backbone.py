@@ -197,6 +197,10 @@ class LoRABackbone(nn.Module):
     # Train / eval management
     # ------------------------------------------------------------------
 
+    def trainable_parameters(self):
+        """Return only the LoRA A/B parameters (the ones that need gradients)."""
+        return [p for p in self.backbone.model.parameters() if p.requires_grad]
+
     def set_train_eval_mode(self) -> None:
         """Set LoRA layers to train, everything else to eval."""
         self.backbone.model.eval()

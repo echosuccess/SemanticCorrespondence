@@ -258,9 +258,7 @@ def train_one_rank(
     model.to(args.device)
 
     # Only LoRA parameters are trained
-    lora_params = [
-        p for p in model.parameters() if p.requires_grad
-    ]
+    lora_params = model.trainable_parameters()
     optimizer = torch.optim.AdamW(
         lora_params, lr=args.lr, weight_decay=args.weight_decay
     )
