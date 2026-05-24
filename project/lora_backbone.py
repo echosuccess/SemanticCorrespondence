@@ -181,7 +181,7 @@ class LoRABackbone(nn.Module):
         self.target_modules = target_modules
 
         # Freeze entire backbone first
-        for p in backbone.parameters():
+        for p in backbone.model.parameters():
             p.requires_grad_(False)
 
         # Inject LoRA
@@ -273,7 +273,7 @@ class LoRABackbone(nn.Module):
         target_modules = ckpt["target_modules"]
 
         # Freeze and inject LoRA structure
-        for p in backbone.parameters():
+        for p in backbone.model.parameters():
             p.requires_grad_(False)
         inject_lora(backbone.model, r, lora_alpha, target_modules)
 
