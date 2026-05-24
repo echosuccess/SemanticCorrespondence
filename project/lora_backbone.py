@@ -54,9 +54,10 @@ class LoRALinear(nn.Module):
 
         in_f  = original.in_features
         out_f = original.out_features
+        device = original.weight.device   # match original layer's device
 
-        self.lora_A = nn.Parameter(torch.empty(in_f, r))
-        self.lora_B = nn.Parameter(torch.zeros(r, out_f))
+        self.lora_A = nn.Parameter(torch.empty(in_f, r, device=device))
+        self.lora_B = nn.Parameter(torch.zeros(r, out_f, device=device))
         self.dropout = nn.Dropout(lora_dropout) if lora_dropout > 0 else nn.Identity()
 
         # Kaiming uniform for A (standard LoRA initialisation)
