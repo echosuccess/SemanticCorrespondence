@@ -67,6 +67,23 @@ class LoRALinear(nn.Module):
         for p in original.parameters():
             p.requires_grad_(False)
 
+    # Expose the same attributes as nn.Linear so backbone code stays compatible
+    @property
+    def in_features(self) -> int:
+        return self.original.in_features
+
+    @property
+    def out_features(self) -> int:
+        return self.original.out_features
+
+    @property
+    def weight(self):
+        return self.original.weight
+
+    @property
+    def bias(self):
+        return self.original.bias
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         base = self.original(x)
         lora = self.dropout(x) @ self.lora_A @ self.lora_B * self.scaling
