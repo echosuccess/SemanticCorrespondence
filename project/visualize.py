@@ -123,6 +123,7 @@ def predict_matches(
     h2, w2 = F_trg.shape[2:]
 
     q = scaling_coordinates(src_kps.unsqueeze(0), (H1, W1), (h1, w1))  # (1, N, 2)
+    q = q.to(F_src.device)
     pred_feat = nn_get_matches(F_src, F_trg, q, l2_norm=True)          # (1, N, 2)
     pred_img = scaling_coordinates(pred_feat, (h2, w2), (H2, W2))
     return pred_img.squeeze(0).cpu()                                   # (N, 2)
